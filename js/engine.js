@@ -1,7 +1,8 @@
 /* 翻棋 demo v1.0
- * 揭棋走法 + 混暗：将帅明置，其余三十子洗入双方阵位。
+ * 揭棋走法：将帅明置，其余三十子洗入双方阵位。
  * 暗子按所在格的原棋种走，走完翻面；之后按真实棋种走。
  * 仕相揭开后可过河。将帅不出九宫，不可照面。
+ * 只保留翻棋、吃子和将杀。
  */
 (function (root, factory) {
   var api = factory();
@@ -37,17 +38,6 @@
     [0, 1],
     [0, -1],
   ];
-
-  var BIG_EVENTS = {
-    borrow: 1,
-    deceive: 1,
-    fratricide: 1,
-    wolf: 1,
-    sleeper: 1,
-    explode: 1,
-    hunjun: 1,
-    win: 1,
-  };
 
   function opposite(color) {
     return color === "red" ? "black" : "red";
@@ -124,10 +114,7 @@
   function publicName(piece) {
     if (!piece) return "";
     if (piece.face === "down") return "暗子";
-    var text = label(piece);
-    if (piece.stains) text += " · 污点" + piece.stains;
-    if (piece.hunjun) text += " · 昏君";
-    return text;
+    return label(piece);
   }
 
   var RED_FILE = ["九", "八", "七", "六", "五", "四", "三", "二", "一"];
@@ -179,18 +166,6 @@
     }
   }
 
-  function freshSpecials() {
-    return {
-      borrow: 0,
-      deceive: 0,
-      fratricide: 0,
-      wolf: 0,
-      sleeper: 0,
-      explode: 0,
-      hunjun: 0,
-    };
-  }
-
   function blankState(turn) {
     return {
       pieces: {},
@@ -203,7 +178,6 @@
       winner: null,
       resultText: "",
       lastMove: null,
-      specials: freshSpecials(),
       nextId: 1,
       undo: [],
     };
@@ -220,8 +194,6 @@
       role: spec.role || spec.type,
       home: spec.home || spec.color,
       face: spec.face || "up",
-      stains: spec.stains || 0,
-      hunjun: !!spec.hunjun,
       f: spec.f,
       r: spec.r,
       alive: true,
@@ -454,54 +426,17 @@
     return true;
   }
 
-  function addStain(state, piece, events) {
-    piece.stains += 1;
-    if (piece.type === "general") {
-      if (piece.stains >= 2 && !piece.hunjun) {
-        piece.hunjun = true;
-        state.specials.hunjun += 1;
-        events.push({
-          type: "hunjun",
-          title: "昏君",
-          sub: "将帅两度误杀己方。君德已亏，此子不会自爆。",
-          cards: [pieceCard(piece, "将帅")],
-        });
-      }
-      return;
-    }
-    if (piece.stains >= 3) {
-      piece.color = opposite(piece.color);
-      piece.stains = 0;
-      state.specials.explode += 1;
-      events.push({
-        type: "explode",
-        title: "自爆",
-        sub: "三枚污点引爆，这枚棋子倒戈，变成对方的棋子。",
-        cards: [pieceCard(piece, "倒戈")],
-      });
-    }
-  }
-
   function commitMeta(state, side, f, r, tf, tr, events) {
     state.moveCount += 1;
     state.lastMove = { f: f, r: r, tf: tf, tr: tr };
     var main = null;
-    var extras = [];
     for (var i = 0; i < events.length; i++) {
       var ev = events[i];
-      if (!main && BIG_EVENTS[ev.type] && ev.type !== "explode" && ev.type !== "hunjun" && ev.type !== "win") {
-        main = ev;
-      } else if (ev.type === "reveal" || ev.type === "capture") {
-        if (!main) main = ev;
-      }
-      if (ev.type === "explode" || ev.type === "hunjun") extras.push(ev);
+      if (!main && (ev.type === "capture" || ev.type === "reveal")) main = ev;
     }
     var head = state.moveCount + ". " + sideName(side) + " " + coord(f, r) + " → " + coord(tf, tr);
     if (main) state.log.push({ n: state.moveCount, text: head + " · " + main.title + "：" + main.sub });
     else state.log.push({ n: state.moveCount, text: head });
-    for (var j = 0; j < extras.length; j++) {
-      state.log.push({ n: state.moveCount, text: extras[j].title + "：" + extras[j].sub });
-    }
   }
 
   function settleTerminal(state) {
@@ -559,51 +494,14 @@
       victim.r = -1;
       if (victim.face === "down") victim.face = "up";
       state.captured.push(victim.id);
-
-      var myMover = mover.color === side;
-      var myVictim = victim.color === side;
-      if (wasDown && !myMover && !myVictim) {
-        state.specials.borrow += 1;
-        events.push({
-          type: "borrow",
-          title: "借刀杀人",
-          sub: "按「" + stepRole + "」揭开的是" + label(mover) + "，吃掉的也是" + label(victim) + "。",
-          cards: flipCards(mover, victim, true),
-        });
-      } else if (wasDown && myMover && myVictim) {
-        state.specials.deceive += 1;
-        events.push({
-          type: "deceive",
-          title: "自欺欺人",
-          sub: "按「" + stepRole + "」揭开的是" + label(mover) + "，吃掉的也是己方" + label(victim) + "。",
-          cards: flipCards(mover, victim, true),
-        });
-        addStain(state, mover, events);
-      } else if (myMover && myVictim) {
-        state.specials.fratricide += 1;
-        events.push({
-          type: "fratricide",
-          title: "误杀",
-          sub: label(mover) + "吃掉了己方" + label(victim) + "，染上一枚污点。",
-          cards: flipCards(mover, victim, wasDown),
-        });
-        addStain(state, mover, events);
-      } else if (wasDown && !myMover && myVictim) {
-        state.specials.wolf += 1;
-        events.push({
-          type: "wolf",
-          title: "引狼入室",
-          sub: "按「" + stepRole + "」揭开的是" + label(mover) + "，吃掉了己方" + label(victim) + "。",
-          cards: flipCards(mover, victim, true),
-        });
-      } else {
-        events.push({
-          type: "capture",
-          title: "吃子",
-          sub: label(mover) + "吃掉" + label(victim) + "。",
-          cards: flipCards(mover, victim, wasDown),
-        });
-      }
+      events.push({
+        type: "capture",
+        title: "吃子",
+        sub: wasDown
+          ? "按「" + stepRole + "」揭开，是" + label(mover) + "，吃掉" + label(victim) + "。"
+          : label(mover) + "吃掉" + label(victim) + "。",
+        cards: flipCards(mover, victim, wasDown),
+      });
 
       if (victim.type === "general") {
         state.status = "capture";
@@ -613,28 +511,25 @@
         if (!probe) commitMeta(state, side, f, r, tf, tr, events);
         return { ok: true, events: events };
       }
-    } else if (wasDown && mover.color !== side) {
-      state.specials.sleeper += 1;
-      events.push({
-        type: "sleeper",
-        title: "敌子现形",
-        sub: "按「" + stepRole + "」揭开，原是" + label(mover) + "，这枚棋子归对方。",
-        cards: [pieceCard(mover, "翻出")],
-      });
     } else if (wasDown) {
       events.push({
         type: "reveal",
         title: "揭棋",
-        sub: "按「" + stepRole + "」揭开，是" + label(mover) + "。",
+        sub: mover.color === side
+          ? "按「" + stepRole + "」揭开，是" + label(mover) + "。"
+          : "按「" + stepRole + "」揭开，是" + label(mover) + "，归对方。",
         cards: [pieceCard(mover, "翻出")],
       });
     }
 
-    if (!probe && !wasDown && generalsFace(state)) {
-      return { ok: false, error: "不能飞将" };
-    }
-    if (!probe && !wasDown && inCheck(state, side)) {
-      return { ok: false, error: wasInCheck ? "被将军，必须先应将" : "不能送将" };
+    if (!probe && state.winner !== side) {
+      var flying = generalsFace(state);
+      var still = inCheck(state, side);
+      if (wasInCheck && (flying || still)) {
+        return { ok: false, error: flying ? "不能飞将" : "被将军，必须先应将" };
+      }
+      if (!wasDown && flying) return { ok: false, error: "不能飞将" };
+      if (!wasDown && still) return { ok: false, error: "不能送将" };
     }
     if (probe) return { ok: true, events: events };
 
@@ -669,6 +564,7 @@
     var legal = [];
     var banned = [];
     if (!state || state.status !== "playing") return { legal: legal, banned: banned };
+    var wasInCheck = inCheck(state, side);
     var id;
     for (id in state.pieces) {
       if (!Object.prototype.hasOwnProperty.call(state.pieces, id)) continue;
@@ -689,12 +585,15 @@
           capture: !!victim,
           risk: !!(victim && victim.face === "down"),
         };
-        var exposed = piece.face === "up" && (generalsFace(next) || (next.winner !== side && inCheck(next, side)));
-        if (exposed && generalsFace(next)) {
-          item.reason = "fly";
-          banned.push(item);
-        } else if (exposed) {
-          item.reason = "check";
+        var reason = "";
+        var won = next.winner === side;
+        var flying = !won && generalsFace(next);
+        var checked = !won && inCheck(next, side);
+        if (wasInCheck && (flying || checked)) reason = flying ? "fly" : "escape";
+        else if (piece.face !== "down" && flying) reason = "fly";
+        else if (piece.face !== "down" && checked) reason = "check";
+        if (reason) {
+          item.reason = reason;
           banned.push(item);
         } else {
           legal.push(item);

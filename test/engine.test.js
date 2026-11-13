@@ -182,51 +182,24 @@ function eventTypes(result) {
   assert(risk && risk.risk, "吃暗子应标成有风险");
 })();
 
-(function stories() {
-  var deceive = Jieqi.createGame({
+(function flipAndCapture() {
+  var own = Jieqi.createGame({
     turn: "red",
     pieces: [
       { color: "red", type: "general", face: "up", f: 4, r: 0 },
       { color: "black", type: "general", face: "up", f: 8, r: 9 },
       { color: "red", type: "rook", role: "rook", home: "red", face: "down", f: 0, r: 3 },
-      { color: "red", type: "soldier", role: "soldier", home: "black", face: "down", f: 0, r: 6 },
-    ],
-  });
-  var d = Jieqi.move(deceive, 0, 3, 0, 6);
-  assert(d.ok, "自欺欺人应能走");
-  assert(eventTypes(d).indexOf("deceive") >= 0, "应出现自欺欺人");
-  var mover = Jieqi.pieceAt(deceive, 0, 6);
-  assert(mover.face === "up" && mover.color === "red" && mover.stains === 1, "误杀者染上污点");
-  assert(deceive.captured.length === 1, "被吃的己方棋离场");
-
-  var borrow = Jieqi.createGame({
-    turn: "red",
-    pieces: [
-      { color: "red", type: "general", face: "up", f: 4, r: 0 },
-      { color: "black", type: "general", face: "up", f: 8, r: 9 },
-      { color: "black", type: "rook", role: "rook", home: "red", face: "down", f: 0, r: 3 },
       { color: "black", type: "soldier", face: "up", f: 0, r: 6 },
     ],
   });
-  var b = Jieqi.move(borrow, 0, 3, 0, 6);
-  assert(b.ok && eventTypes(b).indexOf("borrow") >= 0, "借刀杀人");
-  var knife = Jieqi.pieceAt(borrow, 0, 6);
-  assert(knife.color === "black" && knife.face === "up" && knife.stains === 0, "借来的敌子不记污点");
-  assert(borrow.specials.borrow === 1, "借刀计数");
+  var eaten = Jieqi.move(own, 0, 3, 0, 6);
+  assert(eaten.ok && eventTypes(eaten).indexOf("capture") >= 0, "揭开后吃子");
+  assert(eventTypes(eaten).indexOf("explode") < 0 && eventTypes(eaten).indexOf("hunjun") < 0, "吃子不再自爆或昏君");
+  var rook = Jieqi.pieceAt(own, 0, 6);
+  assert(rook.face === "up" && rook.color === "red" && !rook.stains && !rook.hunjun, "吃子后仍是原来的棋");
+  assert(own.captured.length === 1, "被吃的棋离场");
 
-  var wolf = Jieqi.createGame({
-    turn: "red",
-    pieces: [
-      { color: "red", type: "general", face: "up", f: 4, r: 0 },
-      { color: "black", type: "general", face: "up", f: 8, r: 9 },
-      { color: "black", type: "rook", role: "rook", home: "red", face: "down", f: 0, r: 3 },
-      { color: "red", type: "soldier", role: "soldier", home: "black", face: "down", f: 0, r: 6 },
-    ],
-  });
-  var w = Jieqi.move(wolf, 0, 3, 0, 6);
-  assert(w.ok && eventTypes(w).indexOf("wolf") >= 0, "引狼入室");
-
-  var sleeper = Jieqi.createGame({
+  var revealed = Jieqi.createGame({
     turn: "red",
     pieces: [
       { color: "red", type: "general", face: "up", f: 4, r: 0 },
@@ -234,60 +207,11 @@ function eventTypes(result) {
       { color: "black", type: "rook", role: "rook", home: "red", face: "down", f: 0, r: 3 },
     ],
   });
-  var s = Jieqi.move(sleeper, 0, 3, 0, 5);
-  assert(s.ok && eventTypes(s).indexOf("sleeper") >= 0, "敌子现形");
-  var spy = Jieqi.pieceAt(sleeper, 0, 5);
-  assert(spy.color === "black" && spy.face === "up", "揭开后归黑方");
-  assert(Jieqi.owns(spy, "black") && !Jieqi.owns(spy, "red"), "归属转到黑方");
-})();
-
-(function explodeAndHunjun() {
-  var g = Jieqi.createGame({
-    turn: "red",
-    pieces: [
-      { color: "red", type: "general", face: "up", f: 4, r: 0 },
-      { color: "black", type: "general", face: "up", f: 8, r: 9 },
-      { color: "red", type: "rook", face: "up", f: 0, r: 0 },
-      { color: "red", type: "soldier", face: "down", home: "black", role: "soldier", f: 0, r: 3 },
-      { color: "red", type: "horse", face: "down", home: "black", role: "soldier", f: 0, r: 5 },
-      { color: "red", type: "cannon", face: "down", home: "black", role: "soldier", f: 0, r: 7 },
-    ],
-  });
-  var r1 = Jieqi.move(g, 0, 0, 0, 3);
-  assert(eventTypes(r1).indexOf("fratricide") >= 0, "明子吃己方暗子是误杀");
-  assert(Jieqi.pieceAt(g, 0, 3).stains === 1, "第一枚污点");
-  g.turn = "red";
-  Jieqi.move(g, 0, 3, 0, 5);
-  assert(Jieqi.pieceAt(g, 0, 5).stains === 2, "第二枚污点");
-  g.turn = "red";
-  var r3 = Jieqi.move(g, 0, 5, 0, 7);
-  assert(eventTypes(r3).indexOf("explode") >= 0, "第三枚污点自爆");
-  var boom = Jieqi.pieceAt(g, 0, 7);
-  assert(boom.color === "black" && boom.stains === 0 && boom.type === "rook", "自爆后变成对方棋子并清空污点");
-
-  var king = Jieqi.createGame({
-    turn: "red",
-    pieces: [
-      { color: "red", type: "general", face: "up", f: 4, r: 0 },
-      { color: "black", type: "general", face: "up", f: 3, r: 9 },
-      { color: "red", type: "soldier", face: "down", home: "black", role: "advisor", f: 4, r: 1 },
-      { color: "red", type: "horse", face: "down", home: "black", role: "advisor", f: 4, r: 2 },
-      { color: "red", type: "cannon", face: "down", home: "black", role: "advisor", f: 5, r: 2 },
-    ],
-  });
-  var k1 = Jieqi.move(king, 4, 0, 4, 1);
-  assert(eventTypes(k1).indexOf("fratricide") >= 0 && eventTypes(k1).indexOf("hunjun") < 0, "第一次误杀还不是昏君");
-  king.turn = "red";
-  var k2 = Jieqi.move(king, 4, 1, 4, 2);
-  assert(eventTypes(k2).indexOf("hunjun") >= 0, "第二次误杀弹出昏君");
-  var shuai = Jieqi.pieceAt(king, 4, 2);
-  assert(shuai.hunjun && shuai.color === "red" && shuai.stains === 2, "昏君仍是己方将帅");
-  king.turn = "red";
-  var k3 = Jieqi.move(king, 4, 2, 5, 2);
-  assert(eventTypes(k3).indexOf("explode") < 0, "将帅第三次误杀也不自爆");
-  shuai = Jieqi.pieceAt(king, 5, 2);
-  assert(shuai.color === "red" && shuai.stains === 3 && shuai.hunjun, "将帅留下污点并且不倒戈");
-  assert(king.specials.hunjun === 1, "昏君特效只记一次");
+  var flip = Jieqi.move(revealed, 0, 3, 0, 5);
+  assert(flip.ok && eventTypes(flip).indexOf("reveal") >= 0, "走到空格是揭棋");
+  var spy = Jieqi.pieceAt(revealed, 0, 5);
+  assert(spy.color === "black" && spy.face === "up", "揭开后按真实颜色");
+  assert(Jieqi.owns(spy, "black") && !Jieqi.owns(spy, "red"), "揭开的敌子归对方");
 })();
 
 (function checkRules() {
@@ -374,9 +298,9 @@ function eventTypes(result) {
   });
   assert(pinned.status === "playing" && Jieqi.inCheck(pinned, "red"), "被将军时只要还有应将就不结束");
   var answers = Jieqi.allLegal(pinned, "red");
-  assert(answers.some(function (mv) { return mv.f === 7 && mv.r === 4; }), "被将军时未翻面的棋仍然可以走");
-  assert(has(answers, 3, 0, 4, 1), "暗子可以走到能挡将的格子");
-  var wander = Jieqi.move(Jieqi.createGame({
+  assert(!answers.some(function (mv) { return mv.f === 7 && mv.r === 4; }), "解不开将军的棋不能走");
+  assert(has(answers, 3, 0, 4, 1), "可以走到能挡将的格子");
+  var wanderGame = Jieqi.createGame({
     turn: "red",
     pieces: [
       { color: "red", type: "general", face: "up", f: 4, r: 0 },
@@ -385,10 +309,29 @@ function eventTypes(result) {
       { color: "red", type: "advisor", face: "down", home: "red", role: "advisor", f: 3, r: 0 },
       { color: "red", type: "horse", face: "down", home: "red", role: "horse", f: 7, r: 4 },
     ],
-  }), 7, 4, 5, 3);
-  assert(wander.ok, "解不开将军的暗子也可以走");
+  });
+  var wanderBefore = signature(wanderGame);
+  var wander = Jieqi.move(wanderGame, 7, 4, 5, 3);
+  assert(!wander.ok && wander.error === "被将军，必须先应将", "解不开的下一步要拦住");
+  assert(signature(wanderGame) === wanderBefore, "解不开的步不能走成");
   var out = Jieqi.move(pinned, 3, 0, 4, 1);
   assert(out.ok && !Jieqi.inCheck(pinned, "red"), "挡上将后不再被将军");
+
+  var into = Jieqi.createGame({
+    turn: "red",
+    pieces: [
+      { color: "red", type: "general", face: "up", f: 4, r: 0 },
+      { color: "black", type: "general", face: "up", f: 8, r: 9 },
+      { color: "black", type: "rook", face: "up", f: 5, r: 8 },
+    ],
+  });
+  var intoHints = Jieqi.moveHints(into, "red");
+  assert(intoHints.banned.some(function (mv) { return mv.f === 4 && mv.r === 0 && mv.tf === 5 && mv.tr === 0 && mv.reason === "check"; }), "帅走到会被将军的格子要标出来");
+  assert(!intoHints.legal.some(function (mv) { return mv.f === 4 && mv.r === 0 && mv.tf === 5; }), "帅不能走进将军");
+  var intoBefore = signature(into);
+  var stepped = Jieqi.move(into, 4, 0, 5, 0);
+  assert(!stepped.ok && stepped.error === "不能送将", "帅走进将军时直接阻止");
+  assert(signature(into) === intoBefore && into.turn === "red", "走进将军不会走成");
 
   var darkMate = Jieqi.createGame({
     turn: "red",
@@ -401,8 +344,8 @@ function eventTypes(result) {
       { color: "red", type: "horse", face: "down", home: "red", role: "horse", f: 7, r: 4 },
     ],
   });
-  assert(darkMate.status === "playing", "还有未翻面的棋可走时不结束");
-  assert(Jieqi.allLegal(darkMate, "red").some(function (mv) { return mv.f === 7; }), "将死线上的暗子仍能走");
+  assert(darkMate.status === "checkmate" && darkMate.winner === "black", "没有解法时直接结束，对方赢");
+  assert(darkMate.resultText.indexOf("被将杀") >= 0, "结束语写明被将杀");
 })();
 
 (function mateAndStalemate() {

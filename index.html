@@ -4,16 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>翻棋 Demo v1.0</title>
-  <link rel="stylesheet" href="css/game.css">
+  <link rel="stylesheet" href="css/game.css?v=20261113b">
 </head>
 <body>
   <div class="gate" id="gate">
     <form class="gate-card" id="gate-form">
       <div class="gate-brand">
         <svg class="logo" viewBox="0 0 96 96" aria-hidden="true">
-          <circle cx="48" cy="48" r="44" fill="none" stroke="#e8c98a" stroke-width="2"></circle>
-          <circle cx="48" cy="48" r="36" fill="#2a140f" stroke="#8d642e" stroke-width="3"></circle>
-          <text x="48" y="58" text-anchor="middle" fill="#f6edd8" font-size="32" font-family="KaiTi, STKaiti, serif">翻</text>
+          <circle cx="48" cy="48" r="44" fill="#f4e2c0" stroke="#c4553a" stroke-width="3"></circle>
+          <circle cx="48" cy="48" r="34" fill="#fffaf3" stroke="#b8894a" stroke-width="2"></circle>
+          <text x="48" y="58" text-anchor="middle" fill="#c4553a" font-size="32" font-family="KaiTi, STKaiti, serif">翻</text>
         </svg>
         <div>
           <h1>翻棋</h1>
@@ -131,24 +131,16 @@
   <template id="rules-template">
     <div class="rules">
       <h4>怎么走</h4>
-      <p>亮金边的是你能点的棋。点中之后，绿点是空位，红圈是吃明子，紫圈是吃暗子。暗子落地才翻面，并按它脚下原来的棋种走这一步。</p>
-      <h4>翻吃</h4>
-      <ul>
-        <li>借刀杀人：揭开的是对方，吃掉的也是对方。</li>
-        <li>自欺欺人：揭开的是己方，吃掉的也是己方。</li>
-        <li>误杀：明子吃到己方暗子，记一枚污点。</li>
-        <li>引狼入室：揭出敌子，还吃了己方。</li>
-        <li>敌子现形：走到空格才发现是对方的，这枚棋归对方。</li>
-      </ul>
-      <h4>污点</h4>
-      <p>满三枚污点会自爆，变成对方的棋，将帅除外。将帅误杀两次弹出昏君，对局继续。</p>
-      <p>吃掉对方将帅、将死、困毙或认输分胜负。未翻面的棋按原位走，可以送将，也可以走开形成飞将。已经翻开的棋不能送将，也不能飞将。明子飞将的格子会标成「飞」。</p>
+      <p>绿圈是你能点的棋。点中之后，绿点是空位，红圈是吃明子，黄圈是吃暗子。暗子落地才翻面，并按它脚下原来的棋种走这一步。揭开若是对方的棋，就归对方。</p>
+      <h4>将军</h4>
+      <p>帅走到下一步会被将军的格子，走不了。已经被将军时，只有能解开的步可以走。没有任何解开的办法，这局立刻结束，对方获胜。已经翻开的棋不能送将，也不能飞将。还没翻开的棋，在没被将军时按原位照常走。</p>
+      <p>吃掉对方将帅、将死、困毙或认输分胜负。</p>
     </div>
   </template>
 
   <noscript>需要打开 JavaScript 才能下这局翻棋。</noscript>
-  <script src="js/engine.js"></script>
-  <script src="js/audio.js"></script>
-  <script src="js/ui.js"></script>
+  <script src="js/engine.js?v=20261113b"></script>
+  <script src="js/audio.js?v=20261113b"></script>
+  <script src="js/ui.js?v=20261113b"></script>
 </body>
 </html>

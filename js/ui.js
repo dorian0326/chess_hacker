@@ -6,7 +6,7 @@
   var BW = 584;
   var BH = 648;
   var RECORD_KEY = "fanqi-demo-records-v1";
-  var POP = { reveal: 1, capture: 1, borrow: 1, deceive: 1, fratricide: 1, wolf: 1, sleeper: 1, explode: 1, hunjun: 1, win: 1 };
+  var POP = { reveal: 1, capture: 1, win: 1 };
 
   var state = null;
   var selected = null;
@@ -72,7 +72,7 @@
       el.setAttribute("y1", y1);
       el.setAttribute("x2", x2);
       el.setAttribute("y2", y2);
-      el.setAttribute("stroke", "#e7d7a4");
+      el.setAttribute("stroke", "#7a3e24");
       el.setAttribute("stroke-width", width || "1.7");
       el.setAttribute("stroke-linecap", "square");
       svg.appendChild(el);
@@ -184,7 +184,6 @@
       if (event.type === "win") win = event;
       if (event.type === "check") playSound("check");
       else if (POP[event.type]) playSound(event.type === "reveal" ? "flip" : event.type);
-      if (event.type === "explode" || event.type === "hunjun") shake();
     });
     if (!win) return Promise.resolve();
     lock = true;
@@ -286,12 +285,7 @@
       winner: state.winner,
       result: state.resultText,
       moves: state.moveCount,
-      specials: {
-        borrow: state.specials.borrow,
-        deceive: state.specials.deceive,
-        explode: state.specials.explode,
-        hunjun: state.specials.hunjun,
-      },
+      specials: {},
     };
   }
 
@@ -377,10 +371,7 @@
         front.className = "face front";
         front.setAttribute("aria-hidden", "true");
         var glyph = document.createElement("b");
-        var stains = document.createElement("span");
-        stains.className = "stains";
         front.appendChild(glyph);
-        front.appendChild(stains);
         disk.appendChild(back);
         disk.appendChild(front);
         node.appendChild(disk);
@@ -391,11 +382,13 @@
       var atF = piece.f;
       var atR = piece.r;
       var faceUp = piece.face === "up";
-      if (film && film.id === id && film.phase === "go") {
+      var driving = film && film.id === id && film.driving;
+      if (film && film.id === id && !film.driving) {
         atF = film.fromF;
         atR = film.fromR;
         if (film.wasDown) faceUp = false;
       }
+      if (!driving) {
       node.style.left = xOf(atF) + "%";
       node.style.top = yOf(atR) + "%";
       node.className = "piece " + (faceUp ? "up" : "down");
@@ -418,27 +411,13 @@
       } else if (flag) {
         flag.hidden = true;
       }
+      }
       var frontFace = node.querySelector(".front");
       var revealed = piece.face === "up";
       frontFace.classList.toggle("red", revealed && piece.color === "red");
       frontFace.classList.toggle("black", revealed && piece.color === "black");
       node.querySelector("b").textContent = revealed ? Jieqi.GLYPH[piece.color][piece.type] : "";
       node.setAttribute("aria-label", Jieqi.publicName(piece));
-      var stainBox = node.querySelector(".stains");
-      stainBox.replaceChildren();
-      var dots = revealed ? Math.min(piece.stains, 3) : 0;
-      for (var i = 0; i < dots; i++) stainBox.appendChild(document.createElement("i"));
-      var seal = frontFace.querySelector(".seal");
-      if (revealed && piece.hunjun) {
-        if (!seal) {
-          seal = document.createElement("em");
-          seal.className = "seal";
-          seal.textContent = "昏";
-          frontFace.appendChild(seal);
-        }
-      } else if (seal) {
-        seal.remove();
-      }
     });
     Array.from(pieceNodes.keys()).forEach(function (id) {
       if (!alive.has(id)) {
@@ -455,8 +434,10 @@
       var f = Number(btn.dataset.f);
       var r = Number(btn.dataset.r);
       btn.className = "point";
-      if (state.lastMove && state.lastMove.f === f && state.lastMove.r === r) btn.classList.add("from");
-      if (state.lastMove && state.lastMove.tf === f && state.lastMove.tr === r) btn.classList.add("last");
+      if (film && film.fromF === f && film.fromR === r) btn.classList.add("from");
+      else if (state.lastMove && state.lastMove.f === f && state.lastMove.r === r) btn.classList.add("from");
+      if (film && film.toF === f && film.toR === r) btn.classList.add("to");
+      else if (state.lastMove && state.lastMove.tf === f && state.lastMove.tr === r) btn.classList.add("last");
       var dest = destAt(f, r);
       if (dest) btn.classList.add(dest.risk ? "risk" : dest.capture ? "capture" : "move");
       var ban = banAt(f, r);
@@ -488,19 +469,28 @@
   function dotHint(kinds) {
     var parts = [];
     if (kinds.quiet) parts.push("绿点落空");
-    if (kinds.eat) parts.push("红圈吃明子");
-    if (kinds.risk) parts.push("紫圈揭暗子");
+    if (kinds.eat) parts.push("红圈吃子");
+    if (kinds.risk) parts.push("黄圈吃暗子");
     return parts.length ? "点" + parts.join("，") + "。" : "这枚棋现在没有合法走法。";
+  }
+
+  function banText(reason) {
+    if (reason === "fly") return "不能飞将。";
+    if (reason === "escape") return "被将军，必须先应将。";
+    return "不能送将。";
   }
 
   function banHint(piece) {
     var fly = false;
     var send = false;
+    var escape = false;
     banned.forEach(function (mv) {
       if (mv.f !== piece.f || mv.r !== piece.r) return;
       if (mv.reason === "fly") fly = true;
+      else if (mv.reason === "escape") escape = true;
       else send = true;
     });
+    if (escape) return "被将军时，标「将」的格子解不开，点下去不会走成。";
     if (fly && send) return "标「飞」是飞将，标「将」是送将，点下去不会走成。";
     if (fly) return "标「飞」的格子是飞将，点下去不会走成。";
     if (send) return "标「将」的格子会送将，点下去不会走成。";
@@ -513,22 +503,19 @@
     var check = Jieqi.inCheck(state, state.turn);
     if (!selected) {
       if (check) return "只能走能解开这一将的棋。";
-      return "点一枚亮金边的棋。";
+      return "点一枚绿圈的棋。";
     }
     var piece = Jieqi.pieceAt(state, selected.f, selected.r);
-    if (!piece) return "点一枚亮金边的棋。";
+    if (!piece) return "点一枚绿圈的棋。";
     var hint = dotHint(kindsFor(piece));
     var blocked = banHint(piece);
-    var warn = "";
-    if (piece.face === "up" && piece.type === "general" && piece.stains === 1) warn = "再误杀己方会昏君。";
-    else if (piece.face === "up" && piece.type !== "general" && piece.stains === 2) warn = "再误杀己方会自爆。";
     var head = check ? "这一步必须解开。" : "";
-    if (piece.face === "down") return head + "暗子按脚下原来的棋种走，落地才翻面。" + warn + hint + blocked;
-    return head + Jieqi.publicName(piece) + "。" + warn + hint + blocked;
+    if (piece.face === "down") return head + "暗子按脚下原来的棋种走，落地才翻面。" + hint + blocked;
+    return head + Jieqi.publicName(piece) + "。" + hint + blocked;
   }
 
   function brief(events) {
-    var rank = ["win", "hunjun", "explode", "borrow", "deceive", "wolf", "fratricide", "sleeper", "capture", "reveal"];
+    var rank = ["win", "capture", "reveal"];
     var found = null;
     rank.forEach(function (type) {
       if (found) return;
@@ -543,8 +530,6 @@
       return match ? "翻出" + match[1] : "揭开";
     }
     if (found.type === "capture") return "吃子";
-    if (found.type === "sleeper") return "翻出敌子";
-    if (found.type === "fratricide") return "误杀";
     return found.title;
   }
 
@@ -678,18 +663,18 @@
     }
     var blocked = banAt(piece.f, piece.r);
     if (blocked) {
-      flashCoach(blocked.reason === "fly" ? "不能飞将。" : "不能送将。");
+      flashCoach(banText(blocked.reason));
       playSound("bad");
       return;
     }
     if (!Jieqi.owns(piece, state.turn)) {
-      flashCoach(piece.face === "down" ? "这枚暗子不归你走。点亮金边的棋。" : "这是对方的棋。点亮金边的棋。");
+      flashCoach(piece.face === "down" ? "这枚暗子不归你走。点绿圈的棋。" : "这是对方的棋。点绿圈的棋。");
       playSound("bad");
       return;
     }
     var mine = legal.some(function (mv) { return mv.f === piece.f && mv.r === piece.r; });
     if (!mine) {
-      flashCoach(Jieqi.inCheck(state, state.turn) ? "被将军，必须先应将。这枚棋解不开。" : "这枚棋没有合法走法。换一枚亮金边的。");
+      flashCoach(Jieqi.inCheck(state, state.turn) ? "被将军，必须先应将。这枚棋解不开。" : "这枚棋没有合法走法。换一枚绿圈的。");
       playSound("bad");
       selected = null;
     } else if (selected && selected.f === piece.f && selected.r === piece.r) {
@@ -719,7 +704,7 @@
     }
     var ban = banAt(f, r);
     if (ban) {
-      flashCoach(ban.reason === "fly" ? "不能飞将。" : "不能送将。");
+      flashCoach(banText(ban.reason));
       playSound("bad");
       return;
     }
@@ -730,16 +715,21 @@
   }
 
   function eatSound(events) {
-    var names = ["wolf", "deceive", "fratricide", "borrow", "capture"];
-    for (var i = 0; i < names.length; i++) {
-      for (var j = 0; j < events.length; j++) {
-        if (events[j].type === names[i]) return names[i];
-      }
+    for (var j = 0; j < events.length; j++) {
+      if (events[j].type === "capture") return "capture";
     }
     return "capture";
   }
 
   function settleAfterFilm(events, token) {
+    if (film) {
+      var moverNode = pieceNodes.get(film.id);
+      if (moverNode) {
+        moverNode.style.transition = "";
+        moverNode.style.transform = "";
+        moverNode.classList.remove("traveling", "landed");
+      }
+    }
     film = null;
     viewTurn = null;
     clearGhosts();
@@ -749,7 +739,6 @@
     events.forEach(function (event) {
       if (event.type === "win") win = event;
       if (event.type === "check") playSound("check");
-      if (event.type === "explode" || event.type === "hunjun") shake();
     });
     if (!win) {
       lock = false;
@@ -760,17 +749,83 @@
     });
   }
 
+  function later(ms, fn) {
+    setTimeout(fn, ms);
+  }
+
+  function slidePiece(node, fromF, fromR, toF, toR, ms, done) {
+    var x0 = xOf(fromF);
+    var y0 = yOf(fromR);
+    var x1 = xOf(toF);
+    var y1 = yOf(toR);
+    var t0 = 0;
+    node.style.transition = "none";
+    node.style.left = x0 + "%";
+    node.style.top = y0 + "%";
+    node.classList.add("traveling");
+    function frame(now) {
+      if (!t0) t0 = now;
+      var p = ms <= 0 ? 1 : Math.min(1, (now - t0) / ms);
+      var ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+      var lift = Math.sin(Math.PI * p) * 14;
+      node.style.left = (x0 + (x1 - x0) * ease) + "%";
+      node.style.top = (y0 + (y1 - y0) * ease) + "%";
+      node.style.transform = "translate(-50%, calc(-50% - " + lift.toFixed(2) + "px)) scale(" + (1 + Math.sin(Math.PI * p) * 0.08).toFixed(3) + ")";
+      if (p < 1) requestAnimationFrame(frame);
+      else {
+        node.style.left = x1 + "%";
+        node.style.top = y1 + "%";
+        node.style.transform = "";
+        node.classList.remove("traveling");
+        node.classList.add("landed");
+        done();
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function flipDisk(node, ms, done) {
+    var disk = node.querySelector(".piece-disk");
+    var turned = document.querySelector(".board-frame").classList.contains("turned");
+    var spin = turned ? "rotate(-180deg) " : "";
+    node.classList.remove("down");
+    node.classList.add("up");
+    if (!disk) {
+      done();
+      return;
+    }
+    var anim = disk.animate([
+      { transform: spin + "rotateY(180deg)" },
+      { transform: spin + "rotateY(0deg)" },
+    ], { duration: ms, easing: "cubic-bezier(0.16, 0.82, 0.28, 1)", fill: "forwards" });
+    anim.onfinish = function () {
+      anim.cancel();
+      done();
+    };
+  }
+
+  function popGhost(ghost, ms, done) {
+    var anim = ghost.animate([
+      { transform: "translate(-50%, -50%) scale(1)", opacity: 1 },
+      { transform: "translate(-50%, -72%) scale(1.14)", opacity: 1, offset: 0.32 },
+      { transform: "translate(-50%, -30%) scale(0.16)", opacity: 0 },
+    ], { duration: ms, easing: "ease", fill: "forwards" });
+    anim.onfinish = function () { done(); };
+  }
+
   function playFilm(spec) {
     var token = spec.token;
     var gen = ++filmGen;
     function ok() { return gen === filmGen && token === session; }
-    var quick = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     film = {
       id: spec.id,
       fromF: spec.fromF,
       fromR: spec.fromR,
+      toF: spec.toF,
+      toR: spec.toR,
       phase: "go",
       wasDown: spec.wasDown,
+      driving: false,
     };
     viewTurn = spec.actor;
     lock = true;
@@ -784,43 +839,44 @@
       }
     }
     render(true);
+    film.driving = true;
     if (ghost) piecesLayer.appendChild(ghost);
     var node = pieceNodes.get(spec.id);
-    var slide = quick ? 0 : 460;
-    var read = quick ? 0 : 780;
-    var eat = quick ? 0 : 480;
-    var settle = quick ? 0 : (spec.wasDown || ghost ? 280 : 360);
-    requestAnimationFrame(function () {
-      requestAnimationFrame(function () {
-        if (!ok() || !node) return;
-        node.style.left = xOf(spec.toF) + "%";
-        node.style.top = yOf(spec.toR) + "%";
-        node.classList.add("traveling");
-        playSound("move");
-        setTimeout(function () {
+    if (!ok() || !node) {
+      settleAfterFilm(spec.events, token);
+      return;
+    }
+    playSound("move");
+    slidePiece(node, spec.fromF, spec.fromR, spec.toF, spec.toR, 520, function () {
+      if (!ok()) return;
+      flash(spec.toF, spec.toR);
+      later(180, function () {
+        if (!ok()) return;
+        function afterReveal() {
           if (!ok()) return;
-          node.classList.remove("traveling");
-          flash(spec.toF, spec.toR);
-          setTimeout(function () {
+          function afterEat() {
             if (!ok()) return;
-            if (spec.wasDown) {
-              node.classList.remove("down");
-              node.classList.add("up");
-              playSound("flip");
-            }
-            setTimeout(function () {
+            later(420, function () {
               if (!ok()) return;
-              if (ghost) {
-                ghost.classList.add("taken");
-                playSound(eatSound(spec.events));
-              }
-              setTimeout(function () {
-                if (!ok()) return;
-                settleAfterFilm(spec.events, token);
-              }, (ghost ? eat : 0) + settle);
-            }, spec.wasDown ? read : (quick ? 0 : 90));
-          }, quick ? 0 : 140);
-        }, slide);
+              settleAfterFilm(spec.events, token);
+            });
+          }
+          if (!ghost) {
+            afterEat();
+            return;
+          }
+          playSound(eatSound(spec.events));
+          popGhost(ghost, 480, afterEat);
+        }
+        if (!spec.wasDown) {
+          later(80, afterReveal);
+          return;
+        }
+        playSound("flip");
+        flipDisk(node, 620, function () {
+          if (!ok()) return;
+          later(860, afterReveal);
+        });
       });
     });
   }
