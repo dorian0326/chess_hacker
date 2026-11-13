@@ -28,6 +28,9 @@
   var roomCode = "";
   var socket = null;
   var applyingRemote = false;
+  var film = null;
+  var filmGen = 0;
+  var viewTurn = null;
 
   function apiBase() {
     var path = location.pathname || "/";
@@ -346,9 +349,14 @@
     return null;
   }
 
+  function clearGhosts() {
+    piecesLayer.querySelectorAll(".ghost").forEach(function (node) { node.remove(); });
+  }
+
   function renderPieces() {
+    clearGhosts();
     var alive = new Set();
-    var checked = state.status === "playing" && Jieqi.inCheck(state, state.turn);
+    var checked = !film && state.status === "playing" && Jieqi.inCheck(state, state.turn);
     Object.keys(state.pieces).forEach(function (id) {
       var piece = state.pieces[id];
       if (!piece.alive) return;
@@ -380,9 +388,17 @@
         pieceNodes.set(id, node);
         piecesLayer.appendChild(node);
       }
-      node.style.left = xOf(piece.f) + "%";
-      node.style.top = yOf(piece.r) + "%";
-      node.className = "piece " + (piece.face === "up" ? "up" : "down");
+      var atF = piece.f;
+      var atR = piece.r;
+      var faceUp = piece.face === "up";
+      if (film && film.id === id && film.phase === "go") {
+        atF = film.fromF;
+        atR = film.fromR;
+        if (film.wasDown) faceUp = false;
+      }
+      node.style.left = xOf(atF) + "%";
+      node.style.top = yOf(atR) + "%";
+      node.className = "piece " + (faceUp ? "up" : "down");
       if (showsMoveRing(piece)) node.classList.add("mine");
       if (selected && selected.f === piece.f && selected.r === piece.r) node.classList.add("selected");
       if (state.lastMove && state.lastMove.tf === piece.f && state.lastMove.tr === piece.r) node.classList.add("last");
@@ -542,14 +558,15 @@
       return;
     }
     banner.className = "turn-banner";
-    if (state.status !== "playing") {
+    if (!viewTurn && state.status !== "playing") {
       banner.textContent = state.resultText || "对局结束";
-    } else if (Jieqi.inCheck(state, state.turn)) {
+    } else if (!viewTurn && Jieqi.inCheck(state, state.turn)) {
       banner.classList.add(state.turn, "warn");
       banner.textContent = Jieqi.sideName(state.turn) + "被将军";
     } else {
-      banner.classList.add(state.turn);
-      banner.textContent = Jieqi.sideName(state.turn) + "的回合";
+      var shown = viewTurn || state.turn;
+      banner.classList.add(shown);
+      banner.textContent = Jieqi.sideName(shown) + "的回合";
     }
     if (playMode === "online" && seat) {
       seatEl.hidden = false;
@@ -604,10 +621,11 @@
   function render(animated) {
     var frame = document.querySelector(".board-frame");
     if (!animated) frame.classList.add("instant");
-    var turned = playMode === "online" ? seat === "black" : !!(state && state.turn === "black");
+    var boardSide = viewTurn || (state && state.turn);
+    var turned = playMode === "online" ? seat === "black" : boardSide === "black";
     frame.classList.toggle("turned", turned);
     if (!animated) board.classList.add("no-anim");
-    var hints = state.status === "playing" && Jieqi.moveHints
+    var hints = !film && state.status === "playing" && Jieqi.moveHints
       ? Jieqi.moveHints(state, state.turn)
       : { legal: [], banned: [] };
     legal = hints.legal;
@@ -711,8 +729,108 @@
     refreshSelection();
   }
 
+  function eatSound(events) {
+    var names = ["wolf", "deceive", "fratricide", "borrow", "capture"];
+    for (var i = 0; i < names.length; i++) {
+      for (var j = 0; j < events.length; j++) {
+        if (events[j].type === names[i]) return names[i];
+      }
+    }
+    return "capture";
+  }
+
+  function settleAfterFilm(events, token) {
+    film = null;
+    viewTurn = null;
+    clearGhosts();
+    if (token !== session) return;
+    render(true);
+    var win = null;
+    events.forEach(function (event) {
+      if (event.type === "win") win = event;
+      if (event.type === "check") playSound("check");
+      if (event.type === "explode" || event.type === "hunjun") shake();
+    });
+    if (!win) {
+      lock = false;
+      return;
+    }
+    showFx(win).finally(function () {
+      if (token === session) lock = false;
+    });
+  }
+
+  function playFilm(spec) {
+    var token = spec.token;
+    var gen = ++filmGen;
+    function ok() { return gen === filmGen && token === session; }
+    var quick = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    film = {
+      id: spec.id,
+      fromF: spec.fromF,
+      fromR: spec.fromR,
+      phase: "go",
+      wasDown: spec.wasDown,
+    };
+    viewTurn = spec.actor;
+    lock = true;
+    var ghost = null;
+    if (spec.victimId) {
+      var src = pieceNodes.get(spec.victimId);
+      if (src) {
+        ghost = src.cloneNode(true);
+        ghost.classList.add("ghost");
+        ghost.style.pointerEvents = "none";
+      }
+    }
+    render(true);
+    if (ghost) piecesLayer.appendChild(ghost);
+    var node = pieceNodes.get(spec.id);
+    var slide = quick ? 0 : 460;
+    var read = quick ? 0 : 780;
+    var eat = quick ? 0 : 480;
+    var settle = quick ? 0 : (spec.wasDown || ghost ? 280 : 360);
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        if (!ok() || !node) return;
+        node.style.left = xOf(spec.toF) + "%";
+        node.style.top = yOf(spec.toR) + "%";
+        node.classList.add("traveling");
+        playSound("move");
+        setTimeout(function () {
+          if (!ok()) return;
+          node.classList.remove("traveling");
+          flash(spec.toF, spec.toR);
+          setTimeout(function () {
+            if (!ok()) return;
+            if (spec.wasDown) {
+              node.classList.remove("down");
+              node.classList.add("up");
+              playSound("flip");
+            }
+            setTimeout(function () {
+              if (!ok()) return;
+              if (ghost) {
+                ghost.classList.add("taken");
+                playSound(eatSound(spec.events));
+              }
+              setTimeout(function () {
+                if (!ok()) return;
+                settleAfterFilm(spec.events, token);
+              }, (ghost ? eat : 0) + settle);
+            }, spec.wasDown ? read : (quick ? 0 : 90));
+          }, quick ? 0 : 140);
+        }, slide);
+      });
+    });
+  }
+
   function doMove(mv) {
     var token = session;
+    var actor = state.turn;
+    var mover = Jieqi.pieceAt(state, mv.f, mv.r);
+    var victim = Jieqi.pieceAt(state, mv.tf, mv.tr);
+    var wasDown = !!(mover && mover.face === "down");
     var result = Jieqi.move(state, mv.f, mv.r, mv.tf, mv.tr);
     if (!result.ok) {
       flashCoach(result.error || "不能这么走");
@@ -721,18 +839,25 @@
     }
     selected = null;
     lastCue = brief(result.events);
-    var noisy = result.events.some(function (e) {
-      return e.type !== "check";
-    });
-    if (!noisy) playSound("move");
-    render(true);
-    flash(mv.tf, mv.tr);
     if (playMode === "online" && !applyingRemote) {
       sendWs({ type: "move", f: mv.f, r: mv.r, tf: mv.tf, tr: mv.tr });
     }
     syncRecord();
-    present(result.events, token).then(function () {
-      if (token === session) render(true);
+    if (!mover) {
+      settleAfterFilm(result.events, token);
+      return;
+    }
+    playFilm({
+      token: token,
+      actor: actor,
+      id: mover.id,
+      fromF: mv.f,
+      fromR: mv.r,
+      toF: mv.tf,
+      toR: mv.tr,
+      wasDown: wasDown,
+      victimId: victim ? victim.id : "",
+      events: result.events,
     });
   }
 
@@ -749,6 +874,9 @@
 
   function startGame() {
     session += 1;
+    filmGen += 1;
+    film = null;
+    viewTurn = null;
     closeFx();
     lock = false;
     selected = null;
@@ -766,6 +894,9 @@
 
   function beginOnline(seed) {
     session += 1;
+    filmGen += 1;
+    film = null;
+    viewTurn = null;
     closeFx();
     lock = false;
     selected = null;
